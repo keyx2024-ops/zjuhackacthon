@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: kia-backend-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src/backend:/app
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_DEBUG=True
+      - PROVIDER_BASE_URL=${PROVIDER_BASE_URL}
+      - PROVIDER_AUTH_TOKEN=${PROVIDER_AUTH_TOKEN}
+      - MODEL_NAME=${MODEL_NAME:-claude-haiku-4-5-20251001}
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - kia-network
+
+  frontend:
+    image: node:18-alpine
+    container_name: kia-frontend-dev
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src/frontend:/app/src/frontend
+      - ./package.json:/app/package.json
+      - ./vite.config.js:/app/vite.config.js
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - backend
+    networks:
+      - kia-network
+
+networks:
+  kia-network:
+    driver: bridge

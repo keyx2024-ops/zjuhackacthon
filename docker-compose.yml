@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    container_name: kia-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - PROVIDER_BASE_URL=${PROVIDER_BASE_URL}
+      - PROVIDER_AUTH_TOKEN=${PROVIDER_AUTH_TOKEN}
+      - MODEL_NAME=${MODEL_NAME:-claude-haiku-4-5-20251001}
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/knowledge_integration
+      - REDIS_URL=redis://redis:6379/0
+      - NEO4J_URI=bolt://neo4j:7687
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - kia-network
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: kia-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - kia-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: kia-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=knowledge_integration
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - kia-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: kia-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - kia-network
+
+  neo4j:
+    image: neo4j:5-community
+    container_name: kia-neo4j
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - kia-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  neo4j_data:
+
+networks:
+  kia-network:
+    driver: bridge
