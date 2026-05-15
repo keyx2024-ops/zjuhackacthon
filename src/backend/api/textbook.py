@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
+from api.graph import start_graph_build_job
 from api.store import store
 from config import settings
 from models.textbook import TextbookList, TextbookStatus, TextbookUploadResponse
@@ -42,11 +43,15 @@ async def upload_textbook(file: UploadFile = File(...)):
         textbook = file_parser.parse(str(file_path), textbook_name=Path(file.filename).stem)
         store.add_textbook(textbook)
 
+        build_resp = start_graph_build_job(textbook.textbook_id)
+        job_id = build_resp.get("job_id")
+
         return TextbookUploadResponse(
             textbook_id=textbook.textbook_id,
             name=textbook.name,
             status=textbook.status,
             message=f"成功解析 {len(textbook.chapters)} 个章节，{textbook.total_words} 字",
+            job_id=job_id,
         )
 
     except ValueError as e:

@@ -176,6 +176,15 @@ const kpCompleteness = computed(() => {
 
 async function loadDecisions() {
   if (!props.integrationResult) return;
+
+  if (Array.isArray(props.integrationResult.decisions)) {
+    const all = props.integrationResult.decisions;
+    decisionsTotal.value = all.length;
+    decisions.value = all.slice(0, 20);
+    emit('decisions-loaded', { total: decisionsTotal.value });
+    return;
+  }
+
   try {
     const result = await integrationApi.getDecisions(props.integrationResult.result_id);
     const all = Array.isArray(result.decisions) ? result.decisions : [];

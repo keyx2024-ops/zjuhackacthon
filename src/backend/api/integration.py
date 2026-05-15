@@ -125,6 +125,7 @@ async def _run_integration(
             "integrated_kp_count": result.integrated_kp_count,
             "decisions_summary": decisions_summary,
             **metrics,
+            "graph_data": graph_builder.to_cytoscape_format(result.integrated_graph),
         }
         job_store.complete(handle.job_id, payload)
         logger.info(

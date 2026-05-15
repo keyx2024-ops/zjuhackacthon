@@ -34,8 +34,12 @@ export const textbookApi = {
 };
 
 export const graphApi = {
-  build(textbookId) {
-    return api.post(`/graphs/build/${textbookId}`);
+  build(textbookId, options = {}) {
+    const params = options.force ? '?force=true' : '';
+    return api.post(`/graphs/build/${textbookId}${params}`);
+  },
+  getBuildProgress(jobId) {
+    return api.get(`/graphs/progress/${jobId}`);
   },
   getByTextbook(textbookId) {
     return api.get(`/graphs/textbook/${textbookId}`);

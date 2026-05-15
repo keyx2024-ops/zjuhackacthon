@@ -45,6 +45,9 @@ class GraphBuilder:
             textbook, progress=progress
         )
 
+        if not points:
+            raise ValueError("未提取到有效知识点")
+
         points = self._merge_duplicates_within_textbook(points)
         relations = self._dedup_relations(relations)
         statistics = self._compute_statistics(points, relations)

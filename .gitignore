@@ -1,9 +1,5 @@
 # 教材数据（不上传到GitHub）
-data/textbooks/*.pdf
-data/textbooks/*.docx
-data/textbooks/*.xlsx
-data/state.json
-data/.state.*.json
+data/
 *.pdf
 *.docx
 *.xlsx

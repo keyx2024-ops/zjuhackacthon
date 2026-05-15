@@ -33,7 +33,7 @@ from prompts.graph_alignment import build_alignment_prompt
 logger = logging.getLogger(__name__)
 
 
-ALIGN_LLM_CONCURRENCY = 5
+ALIGN_LLM_CONCURRENCY = 2
 
 
 class GraphAlignment:

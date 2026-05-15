@@ -59,6 +59,7 @@ class TextbookUploadResponse(BaseModel):
     name: str
     status: TextbookStatus
     message: str
+    job_id: Optional[str] = None
 
 
 class TextbookList(BaseModel):

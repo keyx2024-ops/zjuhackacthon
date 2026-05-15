@@ -79,8 +79,7 @@
 
     <div v-if="textbooks.length === 0" class="empty-state">
       <div class="empty-state-icon">📚</div>
-      <div>暂无教材</div>
-      <div class="empty-hint">上传文件开始构建知识图谱</div>
+      <div>请先上传教材</div>
     </div>
 
     <div
@@ -88,15 +87,25 @@
       :key="textbook.textbook_id"
       class="textbook-item"
       :class="{ active: selectedId === textbook.textbook_id }"
-      @click="$emit('selected', textbook.textbook_id)"
     >
-      <div class="textbook-name">{{ textbook.name }}</div>
+      <div class="textbook-header">
+        <span class="textbook-name">{{ textbook.name }}</span>
+        <span class="textbook-time">{{ formatTime(textbook.upload_time) }}</span>
+      </div>
       <div class="textbook-meta">
         {{ textbook.file_format.toUpperCase() }} ·
         {{ textbook.chapters.length }} 章 ·
         {{ textbook.total_words.toLocaleString() }} 字
       </div>
       <div class="textbook-actions">
+        <el-button
+          size="small"
+          link
+          type="primary"
+          @click.stop="$emit('selected', textbook.textbook_id)"
+        >
+          查看图谱
+        </el-button>
         <el-checkbox
           v-if="props.mode === 'manage'"
           v-model="selectedForIntegration"
@@ -134,12 +143,8 @@
           :key="ch.chapter_id || idx"
           class="chapter-row"
         >
-          <span class="chapter-num">{{ ch.chapter_number || (idx + 1) }}</span>
-          <span class="chapter-title" :title="ch.title">{{ ch.title }}</span>
-          <span class="chapter-meta">
-            <template v-if="ch.page_start">P{{ ch.page_start }}<template v-if="ch.page_end && ch.page_end !== ch.page_start">-{{ ch.page_end }}</template> · </template>
-            {{ (ch.word_count || 0).toLocaleString() }} 字
-          </span>
+          <span class="chapter-num">{{ idx + 1 }}</span>
+          <span class="chapter-title" :title="ch.title">{{ formatChapterTitle(ch) }}</span>
         </div>
         <div v-if="!textbook.chapters.length" class="chapter-empty">未识别到章节</div>
       </div>
@@ -175,16 +180,6 @@ watch(
   () => props.textbooks,
   (list) => {
     const currentIds = new Set(list.map((t) => t.textbook_id));
-    const newIds = [...currentIds].filter((id) => !knownIds.value.has(id));
-
-    if (list.length === 1) {
-      expanded.value = { ...expanded.value, [list[0].textbook_id]: true };
-    } else if (newIds.length > 0) {
-      const next = { ...expanded.value };
-      for (const id of newIds) next[id] = true;
-      expanded.value = next;
-    }
-
     knownIds.value = currentIds;
   },
   { immediate: true, deep: true }
@@ -192,6 +187,23 @@ watch(
 
 function toggleChapters(textbookId) {
   expanded.value = { ...expanded.value, [textbookId]: !expanded.value[textbookId] };
+}
+
+function formatChapterTitle(ch) {
+  const title = (ch.title || '').trim();
+  if (/^第[一二三四五六七八九十百千\d]+[章节部篇]/.test(title)) {
+    return title;
+  }
+  const num = ch.chapter_number || '';
+  return num ? `第${num}章 ${title}` : title;
+}
+
+function formatTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 function toggleAllChapters() {
@@ -217,7 +229,7 @@ async function customUpload(options) {
     ElMessage.info(`正在解析 ${file.name}...`);
     const resp = await textbookApi.upload(file);
     ElMessage.success(`${file.name} 上传成功`);
-    emit('uploaded', resp?.textbook_id);
+    emit('uploaded', { textbookId: resp?.textbook_id, jobId: resp?.job_id });
   } catch (error) {
     ElMessage.error(`上传失败：${error.message}`);
   }
@@ -355,6 +367,20 @@ defineExpose({ openCompressionDialog });
   align-items: center;
   gap: 8px;
   margin-left: auto;
+}
+
+.textbook-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.textbook-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .empty-hint {

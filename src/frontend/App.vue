@@ -14,7 +14,7 @@
             :key="item.key"
             class="top-nav-item"
             :class="{ active: activeNav === item.key }"
-            @click="activeNav = item.key"
+            @click="onNavClick(item.key)"
           >
             {{ item.label }}
           </button>
@@ -72,6 +72,9 @@
         ref="graphRef"
         :graph-data="currentGraphData"
         :is-integrated="isIntegratedView"
+        :build-progress="graphBuildProgress"
+        :integration-result="integrationResult"
+        :textbooks="textbooks"
         @node-clicked="onNodeClicked"
       />
     </div>
@@ -97,8 +100,8 @@ const integrationProgress = ref(null);
 const activeNav = ref('upload');
 const isIntegratedView = ref(false);
 const navItems = [
-  { key: 'upload', label: '上传教材' },
-  { key: 'integration', label: '整合数据' },
+  { key: 'upload', label: '我的教材' },
+  { key: 'integration', label: '整合图谱' },
   { key: 'rag', label: 'RAG问答' },
   { key: 'dialogue', label: '多轮对话' },
 ];
@@ -108,9 +111,12 @@ const leftCollapsed = ref(false);
 const lastUploadedId = ref(null);
 const pollTimer = ref(null);
 const pollToken = ref(0);
+const graphBuildTimer = ref(null);
+const graphBuildPollToken = ref(0);
 const manualTextbookView = ref(false);
 const textbookLoadToken = ref(0);
 const graphVersion = ref(0);
+const graphBuildProgress = ref(null);
 
 const graphRenderKey = computed(() => {
   if (isIntegratedView.value) {
@@ -136,43 +142,146 @@ async function loadTextbooks() {
   }
 }
 
-async function onUploaded(textbookId) {
+async function onUploaded(payload) {
+  const textbookId = payload?.textbookId || payload;
+  const jobId = payload?.jobId || null;
   if (textbookId) lastUploadedId.value = textbookId;
   await loadTextbooks();
+  if (!textbookId) return;
+
+  manualTextbookView.value = true;
+  selectedTextbookId.value = textbookId;
+  isIntegratedView.value = false;
+  currentGraphData.value = null;
+  graphVersion.value += 1;
+
+  if (!jobId) return;
+
+  graphBuildProgress.value = { status: 'running', phase: '提取知识点并构建图谱', current: 0, total: 1, percent: 0, message: '任务已启动...' };
+  try {
+    const result = await pollGraphBuild(jobId, textbookId);
+    if (!result) return;
+    const normalized = normalizeGraphData(result);
+    if (normalized) {
+      currentGraphData.value = normalized;
+      graphVersion.value += 1;
+      ElMessage.success('教材图谱生成完成');
+    }
+  } catch (error) {
+    ElMessage.error(`生成知识图谱失败：${error.message}`);
+  } finally {
+    graphBuildProgress.value = null;
+  }
 }
 
 async function onTextbookSelected(textbookId) {
   const token = ++textbookLoadToken.value;
-  const prevGraph = currentGraphData.value;
   manualTextbookView.value = true;
   selectedTextbookId.value = textbookId;
   isIntegratedView.value = false;
+  currentGraphData.value = null;
+  graphVersion.value += 1;
+
+  graphBuildProgress.value = { status: 'running', phase: '加载教材图谱', current: 0, total: 100, percent: 10, message: '正在请求数据...' };
 
   try {
-    let result;
-    try {
-      result = await graphApi.getByTextbook(textbookId);
-    } catch (error) {
-      ElMessage.info('正在为教材构建知识图谱，请稍候...');
-      result = await graphApi.build(textbookId);
-    }
-
+    const result = await graphApi.getByTextbook(textbookId);
     if (token !== textbookLoadToken.value) return;
-    if (selectedTextbookId.value !== textbookId) return;
-
+    graphBuildProgress.value = { status: 'running', phase: '加载教材图谱', current: 50, total: 100, percent: 50, message: '数据已返回，解析中...' };
     const normalized = normalizeGraphData(result);
-    if (!normalized) {
-      throw new Error('教材图谱数据为空');
+    if (normalized) {
+      graphBuildProgress.value = null;
+      currentGraphData.value = normalized;
+    } else {
+      console.warn('[onTextbookSelected] normalizeGraphData returned null. Raw result keys:', Object.keys(result || {}), 'data keys:', Object.keys(result?.data || {}));
+      graphBuildProgress.value = { status: 'running', phase: '加载教材图谱', current: 0, total: 100, percent: 0, message: '图谱数据格式异常，尝试重新构建...' };
+      const buildResp = await graphApi.build(textbookId, { force: true });
+      if (token !== textbookLoadToken.value) return;
+      await handleBuildResponse(buildResp, textbookId, token);
     }
-
-    currentGraphData.value = normalized;
-    graphVersion.value += 1;
   } catch (error) {
     if (token !== textbookLoadToken.value) return;
-    if (selectedTextbookId.value !== textbookId) return;
-    currentGraphData.value = prevGraph;
-    ElMessage.error(`加载知识图谱失败：${error.message}`);
+    const msg = String(error?.message || '').toLowerCase();
+    if (msg.includes('not found') || msg.includes('404')) {
+      graphBuildProgress.value = { status: 'running', phase: '构建教材图谱', current: 0, total: 1, percent: 0, message: '图谱不存在，开始构建...' };
+      try {
+        const buildResp = await graphApi.build(textbookId);
+        if (token !== textbookLoadToken.value) return;
+        await handleBuildResponse(buildResp, textbookId, token);
+      } catch (buildError) {
+        ElMessage.error(`生成知识图谱失败：${buildError.message}`);
+        graphBuildProgress.value = null;
+      }
+    } else {
+      ElMessage.error(`加载知识图谱失败：${error.message}`);
+      graphBuildProgress.value = null;
+    }
   }
+}
+
+async function handleBuildResponse(buildResp, textbookId, token) {
+  if (buildResp.status === 'completed') {
+    const normalized = normalizeGraphData(buildResp.result);
+    if (normalized) {
+      graphBuildProgress.value = null;
+      currentGraphData.value = normalized;
+    } else {
+      graphBuildProgress.value = null;
+    }
+    return;
+  }
+  const result = await pollGraphBuild(buildResp.job_id, textbookId);
+  if (!result) { graphBuildProgress.value = null; return; }
+  if (token !== textbookLoadToken.value) return;
+  const normalized = normalizeGraphData(result);
+  if (normalized) {
+    graphBuildProgress.value = null;
+    currentGraphData.value = normalized;
+    ElMessage.success('教材图谱生成完成');
+  } else {
+    graphBuildProgress.value = null;
+  }
+}
+
+function pollGraphBuild(jobId, textbookId) {
+  graphBuildPollToken.value += 1;
+  const currentToken = graphBuildPollToken.value;
+
+  if (graphBuildTimer.value) {
+    clearTimeout(graphBuildTimer.value);
+    graphBuildTimer.value = null;
+  }
+
+  return new Promise((resolve, reject) => {
+    const tick = async () => {
+      if (currentToken !== graphBuildPollToken.value) {
+        resolve(null);
+        return;
+      }
+      if (selectedTextbookId.value !== textbookId) {
+        resolve(null);
+        return;
+      }
+
+      try {
+        const state = await graphApi.getBuildProgress(jobId);
+        graphBuildProgress.value = state;
+
+        if (state.status === 'completed') {
+          resolve(state.result);
+          return;
+        }
+        if (state.status === 'failed') {
+          reject(new Error(state.error || '图谱构建失败'));
+          return;
+        }
+        graphBuildTimer.value = setTimeout(tick, 1500);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    tick();
+  });
 }
 
 function onTextbookDeleted(textbookId) {
@@ -303,17 +412,57 @@ function onDecisionsLoaded() {}
 
 function onNodeClicked(node) {}
 
+async function onNavClick(key) {
+  if (key === 'integration') {
+    if (integrationResult.value) {
+      activeNav.value = key;
+      const graph = normalizeGraphData(integrationResult.value);
+      if (graph) {
+        currentGraphData.value = graph;
+        isIntegratedView.value = true;
+        manualTextbookView.value = false;
+      }
+      return;
+    }
+    try {
+      const result = await integrationApi.getLatest();
+      integrationResult.value = result;
+      activeNav.value = key;
+      const graph = normalizeGraphData(result);
+      if (graph) {
+        currentGraphData.value = graph;
+        isIntegratedView.value = true;
+        manualTextbookView.value = false;
+      }
+    } catch (error) {
+      ElMessage.warning('请先整合 2 份及以上教材');
+    }
+    return;
+  }
+  activeNav.value = key;
+}
+
 defineExpose({ lastUploadedId });
 
-onMounted(() => {
-  loadTextbooks();
+onMounted(async () => {
+  await loadTextbooks();
+  if (textbooks.value.length === 1) {
+    onTextbookSelected(textbooks.value[0].textbook_id);
+  } else if (textbooks.value.length > 1) {
+    await loadIntegration();
+  }
 });
 
 onUnmounted(() => {
   pollToken.value += 1;
+  graphBuildPollToken.value += 1;
   if (pollTimer.value) {
     clearTimeout(pollTimer.value);
     pollTimer.value = null;
+  }
+  if (graphBuildTimer.value) {
+    clearTimeout(graphBuildTimer.value);
+    graphBuildTimer.value = null;
   }
 });
 </script>

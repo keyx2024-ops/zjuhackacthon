@@ -2,13 +2,14 @@
 知识点提取模块
 
 调用 LLM 从教材内容中提取结构化的知识点和关系。
-- 并发提取：使用 ThreadPoolExecutor 并行调用 LLM（默认 5 路）
+- 并发提取：使用 ThreadPoolExecutor 并行调用 LLM（默认 2 路）
 - 进度回调：通过 JobHandle.update(...) 上报进度
 - 健壮 JSON：容忍尾随逗号、单引号、未闭合数组等常见 LLM 失误
 """
 import json
 import logging
 import re
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Tuple
@@ -28,7 +29,7 @@ from prompts.knowledge_extraction import build_extraction_prompt
 logger = logging.getLogger(__name__)
 
 
-EXTRACT_CONCURRENCY = 5
+EXTRACT_CONCURRENCY = 2
 EXTRACT_MAX_TOKENS = 6000
 
 
@@ -135,43 +136,47 @@ class KnowledgeExtractor:
             use_few_shot=True,
         )
 
-        try:
-            response_text, _ = self.client.complete(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                max_tokens=EXTRACT_MAX_TOKENS,
-            )
-            data = self._parse_json_response(response_text)
+        for attempt in range(3):
+            try:
+                response_text, _ = self.client.complete(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_tokens=EXTRACT_MAX_TOKENS,
+                )
+                data = self._parse_json_response(response_text)
 
-            points = []
-            for kp_data in data.get("knowledge_points", []):
-                try:
-                    if not kp_data.get("name") or not kp_data.get("definition"):
-                        continue
-                    point = KnowledgePoint(
-                        knowledge_id=str(uuid.uuid4()),
-                        name=kp_data["name"],
-                        aliases=kp_data.get("aliases") or [],
-                        definition=kp_data["definition"],
-                        category=KnowledgeCategory(
-                            kp_data.get("category", "concept")
-                        ),
-                        textbook_id=textbook.textbook_id,
-                        textbook_name=textbook.name,
-                        chapter_id=chapter.chapter_id,
-                        chapter_title=chapter.title,
-                        page_number=kp_data.get("page_number") or chapter.page_start,
-                        original_text=kp_data.get("original_text", "") or "",
-                        word_count=len(kp_data.get("definition", "")),
-                    )
-                    points.append(point)
-                except (ValueError, KeyError) as e:
-                    logger.warning(f"Skipping invalid knowledge point: {e}")
+                points = []
+                for kp_data in data.get("knowledge_points", []):
+                    try:
+                        if not kp_data.get("name") or not kp_data.get("definition"):
+                            continue
+                        point = KnowledgePoint(
+                            knowledge_id=str(uuid.uuid4()),
+                            name=kp_data["name"],
+                            aliases=kp_data.get("aliases") or [],
+                            definition=kp_data["definition"],
+                            category=KnowledgeCategory(
+                                kp_data.get("category", "concept")
+                            ),
+                            textbook_id=textbook.textbook_id,
+                            textbook_name=textbook.name,
+                            chapter_id=chapter.chapter_id,
+                            chapter_title=chapter.title,
+                            page_number=kp_data.get("page_number") or chapter.page_start,
+                            original_text=kp_data.get("original_text", "") or "",
+                            word_count=len(kp_data.get("definition", "")),
+                        )
+                        points.append(point)
+                    except (ValueError, KeyError) as e:
+                        logger.warning(f"Skipping invalid knowledge point: {e}")
 
-            return points, data.get("relations", []) or []
+                return points, data.get("relations", []) or []
 
-        except Exception as e:
-            logger.error(f"LLM extraction failed for chapter {chapter.title}: {e}")
+            except Exception as e:
+                if attempt < 2 and "429" in str(e):
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                logger.error(f"LLM extraction failed for chapter {chapter.title}: {e}")
             return self._mock_extract(textbook, chapter)
 
     def _truncate_content(self, content: str, max_chars: int = 8000) -> str:

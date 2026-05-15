@@ -20,14 +20,14 @@ logger = logging.getLogger(__name__)
 
 
 PDF_CHAPTER_PATTERNS = [
-    r"^第([一二三四五六七八九十百千]+|\d+)[章部篇]\s*[一-鿿]",
-    r"^Chapter\s+(\d+)",
+    r"^(第(?:[一二三四五六七八九十百千]+|\d+)[章部篇].*)$",
+    r"^(Chapter\s+\d+.*)$",
 ]
 
 TXT_CHAPTER_PATTERNS = PDF_CHAPTER_PATTERNS + [
-    r"^第([一二三四五六七八九十百千]+|\d+)节",
-    r"^Section\s+(\d+)",
-    r"^[#]+\s+",
+    r"^(第(?:[一二三四五六七八九十百千]+|\d+)节.*)$",
+    r"^(Section\s+\d+.*)$",
+    r"^([#]+\s+.+)$",
 ]
 
 NON_CONTENT_TITLE_RE = re.compile(
@@ -184,10 +184,12 @@ class FileParser:
                     content_parts.append(text_by_page[page_num])
             content = "\n".join(content_parts)
 
+            clean_title = self._clean_chapter_title(title, i + 1)
+
             chapter = Chapter(
                 chapter_id=str(uuid.uuid4()),
                 chapter_number=str(i + 1),
-                title=title.strip(),
+                title=clean_title,
                 content=content,
                 page_start=page_start,
                 page_end=page_end,
@@ -196,6 +198,15 @@ class FileParser:
             chapters.append(chapter)
 
         return chapters
+
+    def _clean_chapter_title(self, title: str, fallback_num: int) -> str:
+        """清理章节标题，保留 '第X章 章名称' 格式"""
+        title = title.strip()
+        title = re.sub(r"[\s\.…·]+\d+\s*$", "", title)
+        title = re.sub(r"\s{2,}", " ", title)
+        if not title:
+            title = f"第{fallback_num}章"
+        return title
 
     def _parse_chapters_with_pattern(
         self, all_text: List[Tuple[int, str]], patterns: list
@@ -207,7 +218,8 @@ class FileParser:
         chapter_marks = []
         for pattern in patterns:
             for match in re.finditer(pattern, full_text, re.MULTILINE):
-                chapter_marks.append((match.start(), match.group(0)))
+                title = match.group(1) if match.lastindex else match.group(0)
+                chapter_marks.append((match.start(), title))
 
         chapter_marks.sort()
 
