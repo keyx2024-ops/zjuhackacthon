@@ -1,5 +1,5 @@
 <template>
-  <div class="section upload-section">
+  <div v-if="props.mode === 'manage'" class="section upload-section">
     <el-upload
       class="upload-compact"
       drag
@@ -19,17 +19,62 @@
     </el-upload>
   </div>
 
+  <el-dialog
+    v-model="showCompressionDialog"
+    title="压缩超过 30%"
+    width="460px"
+    :close-on-click-modal="false"
+    append-to-body
+  >
+    <div class="integration-dialog-body">
+      <div class="ratio-row">
+        <span class="ratio-label">目标压缩比</span>
+        <span class="ratio-value">{{ targetRatioPercent }}%</span>
+      </div>
+      <el-slider
+        v-model="targetRatioPercent"
+        :min="10"
+        :max="30"
+        :step="1"
+        :format-tooltip="(v) => v + '%'"
+      />
+      <div class="ratio-hint">当前整合结果高于 30%，可选择压缩到目标值以下</div>
+    </div>
+    <template #footer>
+      <el-button @click="showCompressionDialog = false">取消</el-button>
+      <el-button type="primary" @click="confirmCompression">确认压缩</el-button>
+    </template>
+  </el-dialog>
+
   <div class="section textbook-list-section">
     <div class="section-title">
-      <span>已上传教材<span class="count-badge">{{ textbooks.length }}</span></span>
-      <el-button
-        v-if="textbooks.length >= 2"
-        type="primary"
-        size="small"
-        @click="handleIntegrate"
-      >
-        开始整合
-      </el-button>
+      <span>{{ props.mode === 'preview' ? '教材预览' : '已上传教材' }}<span class="count-badge">{{ textbooks.length }}</span></span>
+      <div class="title-actions" v-if="props.mode === 'manage'">
+        <el-button
+          v-if="textbooks.length > 0"
+          size="small"
+          link
+          @click="toggleAllChapters"
+        >
+          {{ allExpanded ? '全部收起' : '全部展开' }}
+        </el-button>
+        <el-button
+          v-if="textbooks.length > 1"
+          size="small"
+          link
+          @click="toggleSelectAll"
+        >
+          {{ selectedForIntegration.length === textbooks.length ? '取消全选' : '全选' }}
+        </el-button>
+        <el-button
+          v-if="textbooks.length >= 2"
+          type="primary"
+          size="small"
+          @click="openIntegrationDialog"
+        >
+          开始整合
+        </el-button>
+      </div>
     </div>
 
     <div v-if="textbooks.length === 0" class="empty-state">
@@ -53,6 +98,7 @@
       </div>
       <div class="textbook-actions">
         <el-checkbox
+          v-if="props.mode === 'manage'"
           v-model="selectedForIntegration"
           :label="textbook.textbook_id"
           @click.stop
@@ -67,6 +113,7 @@
           {{ expanded[textbook.textbook_id] ? '收起章节' : '查看章节' }}
         </el-button>
         <el-button
+          v-if="props.mode === 'manage'"
           type="danger"
           size="small"
           link
@@ -101,7 +148,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { UploadFilled } from '@element-plus/icons-vue';
 import { textbookApi } from '../services/api.js';
@@ -109,13 +156,20 @@ import { textbookApi } from '../services/api.js';
 const props = defineProps({
   textbooks: { type: Array, default: () => [] },
   selectedId: String,
+  mode: { type: String, default: 'manage' },
 });
 
-const emit = defineEmits(['uploaded', 'selected', 'deleted', 'integrate']);
+const emit = defineEmits(['uploaded', 'selected', 'deleted', 'integrate', 'compress']);
 
 const selectedForIntegration = ref([]);
 const expanded = ref({});
 const knownIds = ref(new Set());
+const showCompressionDialog = ref(false);
+const targetRatioPercent = ref(30);
+
+const allExpanded = computed(() => {
+  return props.textbooks.length > 0 && props.textbooks.every(t => expanded.value[t.textbook_id]);
+});
 
 watch(
   () => props.textbooks,
@@ -138,6 +192,23 @@ watch(
 
 function toggleChapters(textbookId) {
   expanded.value = { ...expanded.value, [textbookId]: !expanded.value[textbookId] };
+}
+
+function toggleAllChapters() {
+  const newState = !allExpanded.value;
+  const next = { ...expanded.value };
+  for (const textbook of props.textbooks) {
+    next[textbook.textbook_id] = newState;
+  }
+  expanded.value = next;
+}
+
+function toggleSelectAll() {
+  if (selectedForIntegration.value.length === props.textbooks.length) {
+    selectedForIntegration.value = [];
+  } else {
+    selectedForIntegration.value = props.textbooks.map(t => t.textbook_id);
+  }
 }
 
 async function customUpload(options) {
@@ -169,23 +240,41 @@ async function handleDelete(textbookId) {
   }
 }
 
-function handleIntegrate() {
+function openIntegrationDialog() {
+  if (props.textbooks.length < 2) {
+    ElMessage.warning('请至少选择 2 本教材进行整合');
+    return;
+  }
   const ids = Array.isArray(selectedForIntegration.value)
     ? selectedForIntegration.value
     : [];
-  if (ids.length < 2) {
-    if (props.textbooks.length >= 2) {
-      emit(
-        'integrate',
-        props.textbooks.map((t) => t.textbook_id)
-      );
-    } else {
-      ElMessage.warning('请至少选择 2 本教材进行整合');
-    }
-    return;
-  }
-  emit('integrate', ids);
+  const selectedIds = ids.length < 2
+    ? props.textbooks.map((t) => t.textbook_id)
+    : ids;
+  emit('integrate', selectedIds);
 }
+
+function openCompressionDialog(defaultPercent = 30) {
+  targetRatioPercent.value = Math.max(10, Math.min(30, defaultPercent));
+  showCompressionDialog.value = true;
+}
+
+function confirmCompression() {
+  const ids = Array.isArray(selectedForIntegration.value)
+    ? selectedForIntegration.value
+    : [];
+  const selectedIds = ids.length < 2
+    ? props.textbooks.map((t) => t.textbook_id)
+    : ids;
+
+  showCompressionDialog.value = false;
+  emit('compress', {
+    textbookIds: selectedIds,
+    targetRatio: targetRatioPercent.value / 100,
+  });
+}
+
+defineExpose({ openCompressionDialog });
 </script>
 
 <style scoped>
@@ -261,6 +350,13 @@ function handleIntegrate() {
   letter-spacing: 0.2px;
 }
 
+.title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .empty-hint {
   font-size: 12px;
   color: var(--text-tertiary);
@@ -322,5 +418,34 @@ function handleIntegrate() {
   font-size: 12px;
   text-align: center;
   padding: 8px;
+}
+
+.integration-dialog-body {
+  padding-top: 4px;
+}
+
+.ratio-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.ratio-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ratio-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.ratio-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 </style>

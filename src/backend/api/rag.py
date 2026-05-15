@@ -24,6 +24,7 @@ class IndexRequest(BaseModel):
 async def build_index(request: IndexRequest):
     """为教材建立向量索引"""
     indexed_count = 0
+    skipped_ids = []
     for textbook_id in request.textbook_ids:
         textbook = store.get_textbook(textbook_id)
         if not textbook:
@@ -32,10 +33,13 @@ async def build_index(request: IndexRequest):
             )
         chunks_added = rag_pipeline.index_textbook(textbook)
         indexed_count += chunks_added
+        if chunks_added == 0:
+            skipped_ids.append(textbook_id)
 
     status = rag_pipeline.get_status()
     return {
         "message": f"Indexed {indexed_count} new chunks",
+        "skipped_textbook_ids": skipped_ids,
         "status": status.model_dump(),
     }
 

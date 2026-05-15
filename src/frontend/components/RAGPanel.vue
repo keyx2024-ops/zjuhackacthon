@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="rag-container">
     <div class="rag-status">
       <div class="status-item">
         <span class="status-label">已索引教材：</span>
@@ -153,16 +153,32 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.rag-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 16px 18px;
+}
+
 .rag-status {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 12px 14px;
-  background: var(--bg-elev);
+  padding: 14px 16px;
+  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-elev) 100%);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   margin-bottom: 16px;
   flex-wrap: wrap;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.rag-status:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
 }
 
 .status-item {
@@ -189,6 +205,7 @@ onMounted(() => {
 
 .query-section {
   margin-bottom: 18px;
+  flex-shrink: 0;
 }
 
 .query-section :deep(.el-textarea__inner) {
@@ -215,10 +232,20 @@ onMounted(() => {
 }
 
 .response-section {
-  background: var(--bg-elev);
+  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-elev) 100%);
   border: 1px solid var(--border);
   padding: 16px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.response-section:hover {
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(96, 165, 250, 0.1);
 }
 
 .response-header {
@@ -239,14 +266,18 @@ onMounted(() => {
 
 .response-text {
   white-space: pre-wrap;
-  line-height: 1.7;
+  line-height: 1.8;
   color: var(--text-primary);
-  background: var(--bg-surface);
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.3) 0%, rgba(0, 0, 0, 0.2) 100%);
   border: 1px solid var(--border);
-  padding: 14px;
-  border-radius: var(--radius-sm);
+  padding: 16px;
+  border-radius: var(--radius-md);
   margin-bottom: 16px;
   font-size: 14px;
+  max-height: 400px;
+  overflow-y: auto;
+  word-break: break-word;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 .citations-section {

@@ -85,6 +85,7 @@ const props = defineProps({
 const emit = defineEmits(['decisions-modified']);
 
 const messages = ref([]);
+const MAX_MESSAGES = 200;
 const inputMessage = ref('');
 const sending = ref(false);
 const sessionId = ref(null);
@@ -100,6 +101,7 @@ async function sendMessage() {
     metadata: {},
   };
   messages.value.push(userMessage);
+  trimMessages();
 
   const messageText = inputMessage.value;
   inputMessage.value = '';
@@ -123,6 +125,12 @@ async function sendMessage() {
   }
 }
 
+function trimMessages() {
+  if (messages.value.length > MAX_MESSAGES) {
+    messages.value.splice(0, messages.value.length - MAX_MESSAGES);
+  }
+}
+
 function sendQuickMessage(text) {
   inputMessage.value = text;
   sendMessage();
@@ -143,12 +151,19 @@ function scrollToBottom() {
   flex-direction: column;
   height: 100%;
   min-height: 500px;
+  overflow: hidden;
+  padding: 16px 18px;
 }
 
 .quick-actions {
   margin-bottom: 14px;
+  margin-top: 0;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.05) 0%, transparent 100%);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 14px;
 }
 
 .quick-action-title {
@@ -162,8 +177,12 @@ function scrollToBottom() {
   overflow-y: auto;
   padding-right: 4px;
   margin-bottom: 12px;
+  margin-top: 12px;
   min-height: 200px;
   max-height: 400px;
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.1) 0%, rgba(0, 0, 0, 0.05) 100%);
+  border-radius: var(--radius-md);
+  padding: 12px;
 }
 
 .empty-message {
@@ -209,6 +228,7 @@ function scrollToBottom() {
 
 .input-area {
   flex-shrink: 0;
+  margin-top: 12px;
 }
 
 .input-area :deep(.el-textarea__inner) {
@@ -227,6 +247,7 @@ function scrollToBottom() {
   text-align: center;
   padding: 48px 20px;
   color: var(--text-tertiary);
+  margin: auto;
 }
 
 .empty-state-icon {

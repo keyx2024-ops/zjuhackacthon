@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -75,18 +76,48 @@ class JobHandle:
 
 
 class JobStore:
-    def __init__(self):
+    def __init__(self, *, max_jobs: int = 200, retention_seconds: int = 1800):
         self._states: Dict[str, JobState] = {}
+        self._order = deque()
+        self._max_jobs = max_jobs
+        self._retention_seconds = retention_seconds
+
+    def _gc(self) -> None:
+        now = time.time()
+        expired_ids = []
+        for job_id, state in self._states.items():
+            if state.status in {"completed", "failed"} and (now - state.updated_at) > self._retention_seconds:
+                expired_ids.append(job_id)
+
+        for job_id in expired_ids:
+            self._states.pop(job_id, None)
+
+        while self._order and self._order[0] not in self._states:
+            self._order.popleft()
+
+        while len(self._states) > self._max_jobs and self._order:
+            non_running = next((jid for jid in self._order if self._states.get(jid) and self._states[jid].status != "running"), None)
+            if non_running is None:
+                break
+            try:
+                self._order.remove(non_running)
+            except ValueError:
+                pass
+            self._states.pop(non_running, None)
 
     def create(self) -> JobHandle:
+        self._gc()
         job_id = str(uuid.uuid4())
         self._states[job_id] = JobState(job_id=job_id, status="running")
+        self._order.append(job_id)
         return JobHandle(self, job_id)
 
     def get(self, job_id: str) -> Optional[JobState]:
+        self._gc()
         return self._states.get(job_id)
 
     def complete(self, job_id: str, result: Any) -> None:
+        self._gc()
         state = self._states.get(job_id)
         if state:
             state.status = "completed"
@@ -95,6 +126,7 @@ class JobStore:
             state.updated_at = time.time()
 
     def fail(self, job_id: str, error: str) -> None:
+        self._gc()
         state = self._states.get(job_id)
         if state:
             state.status = "failed"

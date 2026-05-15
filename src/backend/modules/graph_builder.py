@@ -16,6 +16,15 @@ from modules.knowledge_extractor import knowledge_extractor
 logger = logging.getLogger(__name__)
 
 
+RELATION_LABEL_ZH = {
+    "prerequisite": "前置",
+    "parallel": "并列",
+    "contains": "包含",
+    "applies_to": "应用",
+    "depends_on": "依赖",
+}
+
+
 class GraphBuilder:
     """知识图谱构建器"""
 
@@ -153,12 +162,16 @@ class GraphBuilder:
 
         edges_data = []
         for rel in graph.edges:
+            rel_en = rel.relation_type.value
+            rel_zh = RELATION_LABEL_ZH.get(rel_en, rel_en)
             edge = {
                 "data": {
                     "id": rel.relation_id,
                     "source": rel.source_id,
                     "target": rel.target_id,
-                    "label": rel.relation_type.value,
+                    "label": f"{rel_en}\n{rel_zh}",
+                    "relation_en": rel_en,
+                    "relation_zh": rel_zh,
                     "description": rel.description or "",
                 }
             }

@@ -243,9 +243,9 @@ DELETE /api/textbooks/{id}            # 删除教材
 ### 知识图谱
 
 ```
-GET    /api/graphs/{textbook_id}      # 获取教材的知识图谱
-POST   /api/graphs/integrate          # 执行跨教材整合
-GET    /api/graphs/integration-result # 获取整合结果
+POST   /api/graphs/build/{textbook_id}      # 构建教材知识图谱（已存在则复用）
+GET    /api/graphs/textbook/{textbook_id}   # 按教材获取图谱
+GET    /api/graphs/{graph_id}               # 按图谱ID获取图谱
 ```
 
 ### RAG 问答
@@ -329,6 +329,15 @@ MIT License
 - 提交 GitHub Issue
 - 发送邮件至 [your-email@example.com]
 
+## ✅ 当前优化版本（2026-05）
+
+- 图谱渲染升级为更稳健的力导向布局（cose-bilkent），节点/关系标签可读性显著提升。
+- 关系标签支持中英双行展示（英文在上，中文在下），并补全 `depends_on` 中文映射。
+- 图谱交互支持关系线聚焦避让（突出选中关系，弱化非相关元素），便于密集区域阅读。
+- 整合任务结果载荷瘦身：任务状态不再携带大图对象，改为轻量指标与结果 ID。
+- 内存治理优化：任务存储增加 TTL 与数量上限，整合结果保留最近 N 条，RAG 索引去重与上限控制。
+- 教材图谱切换稳定性修复：增加请求并发保护与图谱实例重建版本号，连续切换教材更稳定。
+
 ---
 
-**最后更新**：2026-05-10
+**最后更新**：2026-05-15

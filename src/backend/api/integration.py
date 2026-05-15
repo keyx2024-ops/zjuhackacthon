@@ -112,6 +112,9 @@ async def _run_integration(
         )
         store.add_integration_result(result)
 
+        decisions_summary = _summarize_decisions(result.decisions)
+        metrics = _build_metrics_payload(result, decisions_summary)
+
         payload = {
             "result_id": result.result_id,
             "original_total_words": result.original_total_words,
@@ -120,8 +123,8 @@ async def _run_integration(
             "target_ratio": result.target_ratio,
             "original_kp_count": result.original_kp_count,
             "integrated_kp_count": result.integrated_kp_count,
-            "decisions_summary": _summarize_decisions(result.decisions),
-            "graph_data": graph_builder.to_cytoscape_format(result.integrated_graph),
+            "decisions_summary": decisions_summary,
+            **metrics,
         }
         job_store.complete(handle.job_id, payload)
         logger.info(
@@ -140,6 +143,9 @@ async def get_latest_integration():
     if not result:
         raise HTTPException(status_code=404, detail="No integration result available")
 
+    decisions_summary = _summarize_decisions(result.decisions)
+    metrics = _build_metrics_payload(result, decisions_summary)
+
     return {
         "result_id": result.result_id,
         "original_total_words": result.original_total_words,
@@ -148,7 +154,8 @@ async def get_latest_integration():
         "target_ratio": result.target_ratio,
         "original_kp_count": result.original_kp_count,
         "integrated_kp_count": result.integrated_kp_count,
-        "decisions_summary": _summarize_decisions(result.decisions),
+        "decisions_summary": decisions_summary,
+        **metrics,
         "decisions": [d.model_dump() for d in result.decisions],
         "graph_data": graph_builder.to_cytoscape_format(result.integrated_graph),
     }
@@ -182,3 +189,29 @@ def _summarize_decisions(decisions: list) -> dict:
         elif d.decision == IntegrationDecision.REMOVE:
             summary["remove_count"] += 1
     return summary
+
+
+def _build_metrics_payload(result, decisions_summary: dict) -> dict:
+    original_words = result.original_total_words or 0
+    integrated_words = result.integrated_total_words or 0
+    contest_compression_ratio = (
+        integrated_words / original_words if original_words > 0 else 0
+    )
+
+    merge_count = decisions_summary.get("merge_count", 0)
+    keep_count = decisions_summary.get("keep_count", 0)
+    remove_count = decisions_summary.get("remove_count", 0)
+    total_decisions = decisions_summary.get("total", 0)
+    kp_effective = merge_count + keep_count - remove_count
+    kp_completeness = (total_decisions / kp_effective) if kp_effective > 0 else 0
+
+    return {
+        "contest_compression_ratio": contest_compression_ratio,
+        "contest_ratio_numerator": integrated_words,
+        "contest_ratio_denominator": original_words,
+        "target_ratio": result.target_ratio,
+        "target_ratio_met": contest_compression_ratio <= (result.target_ratio or 0),
+        "kp_completeness": kp_completeness,
+        "kp_ratio_numerator": total_decisions,
+        "kp_ratio_denominator": kp_effective,
+    }

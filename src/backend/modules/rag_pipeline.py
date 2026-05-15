@@ -13,7 +13,7 @@ import re
 import time
 import uuid
 from collections import Counter
-from typing import List, Optional, Tuple
+from typing import List, Optional, Set, Tuple
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -37,6 +37,8 @@ class RAGPipeline:
         self.chunks: List[DocumentChunk] = []
         self.embeddings: Optional[np.ndarray] = None
         self.token_to_chunks: dict = {}
+        self.indexed_textbook_ids: Set[str] = set()
+        self.max_chunks = 20000
 
     def _get_embedding_model(self):
         """懒加载 embedding 模型"""
@@ -59,6 +61,10 @@ class RAGPipeline:
         """
         logger.info(f"Indexing textbook: {textbook.name}")
 
+        if textbook.textbook_id in self.indexed_textbook_ids:
+            logger.info(f"Textbook already indexed, skip: {textbook.textbook_id}")
+            return 0
+
         new_chunks = []
         for chapter in textbook.chapters:
             chapter_chunks = self._chunk_text(
@@ -73,14 +79,16 @@ class RAGPipeline:
 
         logger.info(f"Generated {len(new_chunks)} chunks for {textbook.name}")
 
+        if len(self.chunks) + len(new_chunks) > self.max_chunks:
+            raise ValueError(
+                f"RAG index chunk limit exceeded: {len(self.chunks) + len(new_chunks)} > {self.max_chunks}"
+            )
+
         model = self._get_embedding_model()
         texts = [chunk.content for chunk in new_chunks]
         new_embeddings = model.encode(
             texts, batch_size=32, show_progress_bar=False, normalize_embeddings=True
         )
-
-        for chunk, emb in zip(new_chunks, new_embeddings):
-            chunk.embedding = emb.tolist()
 
         self.chunks.extend(new_chunks)
         if self.embeddings is None:
@@ -89,6 +97,7 @@ class RAGPipeline:
             self.embeddings = np.vstack([self.embeddings, np.array(new_embeddings)])
 
         self._build_inverted_index(new_chunks)
+        self.indexed_textbook_ids.add(textbook.textbook_id)
 
         logger.info(f"Indexed {len(new_chunks)} chunks. Total: {len(self.chunks)}")
         return len(new_chunks)
@@ -118,6 +127,7 @@ class RAGPipeline:
         chunks = []
         current_text = ""
         chunk_index = 0
+        overlap_text = ""
 
         for para in paragraphs:
             if len(current_text) + len(para) > chunk_size and current_text:
@@ -134,9 +144,13 @@ class RAGPipeline:
                 )
                 chunks.append(chunk)
                 chunk_index += 1
+
+                # 计算重叠部分（从当前块的末尾取）
                 if overlap > 0 and len(current_text) > overlap:
-                    current_text = current_text[-overlap:] + "\n\n" + para
+                    overlap_text = current_text[-overlap:]
+                    current_text = overlap_text + "\n\n" + para
                 else:
+                    overlap_text = ""
                     current_text = para
             else:
                 if current_text:
@@ -367,25 +381,28 @@ class RAGPipeline:
     ) -> List[Citation]:
         """构建引用列表"""
         citations = []
+        cited_chunk_ids = set()
+
+        # 首先收集在回答中被明确引用的块
         for i, chunk in enumerate(chunks, start=1):
             cite_marker = f"[{i}]"
-            if cite_marker not in answer:
-                continue
+            if cite_marker in answer:
+                relevance = chunk.metadata.get(
+                    "rrf_score",
+                    chunk.metadata.get("vector_score", 0.0),
+                )
+                citation = Citation(
+                    chunk_id=chunk.chunk_id,
+                    textbook_name=chunk.textbook_name,
+                    chapter_title=chunk.chapter_title,
+                    page_number=chunk.page_number,
+                    relevance_score=float(relevance),
+                    text_snippet=chunk.content[:200] + ("..." if len(chunk.content) > 200 else ""),
+                )
+                citations.append(citation)
+                cited_chunk_ids.add(chunk.chunk_id)
 
-            relevance = chunk.metadata.get(
-                "rrf_score",
-                chunk.metadata.get("vector_score", 0.0),
-            )
-            citation = Citation(
-                chunk_id=chunk.chunk_id,
-                textbook_name=chunk.textbook_name,
-                chapter_title=chunk.chapter_title,
-                page_number=chunk.page_number,
-                relevance_score=float(relevance),
-                text_snippet=chunk.content[:200] + ("..." if len(chunk.content) > 200 else ""),
-            )
-            citations.append(citation)
-
+        # 如果没有明确引用，添加前 3 个最相关的块
         if not citations and chunks:
             for chunk in chunks[:3]:
                 citation = Citation(
@@ -393,8 +410,8 @@ class RAGPipeline:
                     textbook_name=chunk.textbook_name,
                     chapter_title=chunk.chapter_title,
                     page_number=chunk.page_number,
-                    relevance_score=0.0,
-                    text_snippet=chunk.content[:200],
+                    relevance_score=chunk.metadata.get("rrf_score", chunk.metadata.get("vector_score", 0.0)),
+                    text_snippet=chunk.content[:200] + ("..." if len(chunk.content) > 200 else ""),
                 )
                 citations.append(citation)
 

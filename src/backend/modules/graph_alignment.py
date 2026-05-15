@@ -131,7 +131,7 @@ class GraphAlignment:
         )
 
         logger.info(
-            f"Integration complete: integrated={integrated_words} / textbook={textbook_total_words}, "
+            f"Integration complete: integrated={integrated_words} / textbook_total={textbook_total_words}, "
             f"compression_ratio={compression_ratio:.2%} (target={target_ratio:.2%})"
         )
         if progress:
@@ -462,10 +462,33 @@ class GraphAlignment:
                 )
                 words_removed += point.word_count
 
+        # Pass 3: hard fallback（不再保护类别/频次，确保 target_ratio 生效）
+        if words_removed < excess_words:
+            for decision in keep_decisions:
+                if words_removed >= excess_words:
+                    break
+                if decision.decision != IntegrationDecision.KEEP:
+                    continue
+                point = id_to_point.get(decision.primary_knowledge_id)
+                if not point:
+                    continue
+                decision.decision = IntegrationDecision.REMOVE
+                decision.reason = (
+                    f"为严格达到目标压缩比 {target_ratio:.0%}，"
+                    f"执行兜底压缩（{point.category.value}, freq={point.frequency}）"
+                )
+                words_removed += point.word_count
+
+        final_kept = kept_words()
+        final_ratio = (final_kept / denominator_words) if denominator_words > 0 else 0
         logger.info(
-            f"Removed {words_removed} words; final kept = {kept_words()} / "
-            f"{denominator_words} = {kept_words()/denominator_words:.2%}"
+            f"Removed {words_removed} words; final kept = {final_kept} / "
+            f"{denominator_words} = {final_ratio:.2%}"
         )
+        if final_ratio > target_ratio:
+            logger.warning(
+                f"Target ratio not met: final={final_ratio:.2%}, target={target_ratio:.2%}"
+            )
 
         return decisions
 

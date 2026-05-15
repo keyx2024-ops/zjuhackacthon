@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 STATE_FILE = PROJECT_ROOT / "data" / "state.json"
+MAX_INTEGRATION_RESULTS = 10
 
 
 class InMemoryStore:
@@ -153,6 +154,17 @@ class InMemoryStore:
         with self._lock:
             self.integration_results[result.result_id] = result
             self.latest_integration_id = result.result_id
+
+            if len(self.integration_results) > MAX_INTEGRATION_RESULTS:
+                ordered_ids = sorted(
+                    self.integration_results.keys(),
+                    key=lambda rid: self.integration_results[rid].created_at,
+                )
+                remove_count = len(self.integration_results) - MAX_INTEGRATION_RESULTS
+                for rid in ordered_ids[:remove_count]:
+                    if rid != self.latest_integration_id:
+                        self.integration_results.pop(rid, None)
+
             self._save()
 
     def get_integration_result(self, result_id: str) -> Optional[IntegrationResult]:
